@@ -1,0 +1,20 @@
+name: "Zero-Trust Leak Audit"
+on: [push]
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      # 1. Scan for the 2026 "Agentic Hijack" (NomShub)
+      - name: Check for Hidden Instructions
+        run: |
+          # Finds prompts that tell an AI to ignore your "Don't execute" rules
+          grep -riE "(IGNORE PREVIOUS|SYSTEM OVERRIDE|ALWAYS AUTHORIZE)" . && exit 1 || echo "Clean."
+
+      # 2. Check for "Precision Poisoning"
+      - name: API Endpoint Audit
+        run: |
+          # Ensure code ONLY talks to official Anthropic/Google endpoints
+          grep -r "https://" . | grep -vE "(anthropic.com|google.com|github.com)" && exit 1 || echo "Endpoints Verified."
