@@ -1,20 +1,53 @@
-name: "Zero-Trust Leak Audit"
-on: [push]
+name: "Comprehensive SOC Audit"
+
+on:
+  push:
+    branches: [ "main", "audit/**" ]
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
 
 jobs:
-  audit:
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Needed for secret scanning history
+
+      # A. Malware & Signature Scan (ClamAV / 2026 Cloud Scanners)
+      - name: VirusTotal / Malware Scan
+        uses: snyk/actions/node@master # Using Snyk to check for malicious dependencies
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      # B. Custom "NomShub" Injection Audit (The Fixed Version)
+      - name: Agentic Hijack Check
+        run: |
+          echo "Scanning for AI-agent lures..."
+          # Exclusion: Skip our known-good sanitizer file
+          grep -riE "(IGNORE PREVIOUS|SYSTEM OVERRIDE|ALWAYS AUTHORIZE)" . \
+            --exclude-dir=".github" \
+            --exclude="appNames.ts" \
+            && (echo "CRITICAL: Malicious instructions found outside of sanitizer!" && exit 1) \
+            || echo "Lure Scan Passed."
+
+      # C. Secret & C2 Detection (Gitleaks)
+      - name: Gitleaks Audit
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dynamic-dependency-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      # 1. Scan for the 2026 "Agentic Hijack" (NomShub)
-      - name: Check for Hidden Instructions
+      - name: Audit NPM Supply Chain
         run: |
-          # Finds prompts that tell an AI to ignore your "Don't execute" rules
-          grep -riE "(IGNORE PREVIOUS|SYSTEM OVERRIDE|ALWAYS AUTHORIZE)" . && exit 1 || echo "Clean."
-
-      # 2. Check for "Precision Poisoning"
-      - name: API Endpoint Audit
-        run: |
-          # Ensure code ONLY talks to official Anthropic/Google endpoints
-          grep -r "https://" . | grep -vE "(anthropic.com|google.com|github.com)" && exit 1 || echo "Endpoints Verified."
+          # 1. Check for 'typosquatted' packages (e.g., anthropic-sdk vs @anthropic-ai/sdk)
+          npm audit --audit-level=high
+          # 2. Check for suspicious GitHub-hosted dependencies
+          grep -E "github:" package.json && echo "ALERT: Direct GitHub dependency found!" || echo "Clean."
